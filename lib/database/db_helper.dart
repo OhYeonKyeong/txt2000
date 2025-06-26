@@ -1,5 +1,7 @@
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
+import 'package:txt2000/models/text_model.dart';
+
 
 class DBHelper {
   // DBHelper는 앱 내에서 단 하나의 인스턴스만 사용하도록 싱글톤 생성
@@ -17,7 +19,7 @@ class DBHelper {
   }
 
   Future<Database> _initDB() async {
-    final dbPath = await getDatabasesPath(); // 기본경로
+    final dbPath = await getDatabasesPath();
     final path = join(dbPath, 'my_texts.db');
 
     return await openDatabase(
@@ -37,28 +39,60 @@ class DBHelper {
     );
   }
 
-  Future<int> insertText(Map<String, dynamic> row) async {
+  // 저장하기
+  // 모오델을 사용하지 않으면 여기가 insertText(Map<String, dynamic>) async { 이렇게된다!
+  Future<int> insertText(TextModel text) async {
     final db = await database;
-    return await db.insert('texts', row);
+    return await db.insert('texts', text.toMap());
   }
 
-  Future<List<Map<String, dynamic>>> getTextsList() async {
+  // 글목록 불러오기
+  Future<List<TextModel>> getTextsList() async {
     final db = await database;
-    return await db.query('texts', orderBy: 'seq DESC');
+    final result = await db.rawQuery('''
+      SELECT seq, title, content, createdAt, modifiedAt
+      FROM texts
+      ORDER BY seq DESC
+    ''');
+
+    return result.map((row) => TextModel.fromMap(row)).toList();
   }
 
-  Future<int> updateText(int seq, Map<String, dynamic> row) async {
+  // 글상세 불러오기
+  Future<TextModel?> getTextBySeq(int seq) async {
     final db = await database;
-    return await db.update('texts', row, where: 'seq = ?', whereArgs: [seq]);
+    final result = await db.query(
+      'texts',
+      where: 'seq = ?',
+      whereArgs: [seq],
+    );
+
+    if (result.isNotEmpty) {
+      return TextModel.fromMap(result.first);
+    }
+
+    return null;
+  }
+  
+  // 수정하기
+  Future<int> updateText(TextModel text) async {
+    final db = await database;
+    return await db.update(
+      'texts',
+      text.toMap(),
+      where: 'seq = ?',
+      whereArgs: [text.seq],
+    );
   }
 
+  // 삭제하기
   Future<int> deleteText(int seq) async {
     final db = await database;
     return await db.delete('texts', where: 'seq = ?', whereArgs: [seq]);
   }
 
   // 어플 종료 시 DB연결 종료.
-  Future close() async {
+  Future<void> close() async {
     final db = await database;
     db.close();
   }

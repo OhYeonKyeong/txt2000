@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:txt2000/database/db_helper.dart';
-import 'package:intl/intl.dart';
+import '../models/text_model.dart';
+import '../widgets/common_page_wrapper.dart';
 
 class WritePage extends StatefulWidget {
+  const WritePage({super.key});
+
   @override
   _WritePageState createState() => _WritePageState();
 }
@@ -13,17 +16,37 @@ class _WritePageState extends State<WritePage> {
   // DB인스턴스
   final DBHelper _dbHelper = DBHelper();
 
-  // 텍스트 변수
+  // 텍스트 변수들
   final TextEditingController _titleController = TextEditingController();
   final TextEditingController _contentController = TextEditingController();
   bool _includeSpaces = true;
-
 
   // 글자 수 제한 관련 변수들
   int _baseCharCount = 20;
   double _tolerance = 0.1;
   int get minTxt => (_baseCharCount * (1 - _tolerance)).round();
   int get maxTxt => (_baseCharCount * (1 + _tolerance)).round();
+
+  // 글 수정 관련 변수들
+  bool _isEditMode = false;
+  TextModel? _textData;
+
+  // 수정으로 진입한 경우 파라미터 처리
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final args = ModalRoute.of(context)!.settings.arguments;
+    if (args is Map && args['mode'] == 'edit') {
+      _isEditMode = true;
+      _textData = args['text'];
+
+      print('데이터 : ');
+      print(_textData!);
+
+      _titleController.text = _textData?.title ?? '';
+      _contentController.text = _textData?.content ?? '';
+    }
+  }
 
   // 공백 포함 여부에 따라 글자 수 계산 (비공개)
   int _getCharCount() {
@@ -51,7 +74,7 @@ class _WritePageState extends State<WritePage> {
   }
 
   // 저장 기능 (비공개)
-  Future<void> _saveText(String savedText) async {
+  Future<int> _saveText(String savedText) async {
     String _saveTitle = _titleController.text.trim();
     String _saveContent = _contentController.text.trim();
 
@@ -62,17 +85,37 @@ class _WritePageState extends State<WritePage> {
     }
 
     final now = DateTime.now().toIso8601String();
-
-    // 저장할 row 구성
-    Map<String, dynamic> row = {
-      'title': _saveTitle,
-      'content': _saveContent,
-      'createdAt': now,
-      'modifiedAt': now,
-    };
+    int returnRow = -1;
 
     try {
-      await _dbHelper.insertText(row);
+      if(_isEditMode) {
+        // 수정
+        final updated = TextModel(
+          seq: _textData!.seq,
+          title: _saveTitle,
+          content: _saveContent,
+          createdAt: _textData!.createdAt, // 기존 생성일 유지
+          modifiedAt: now,
+        );
+
+        setState(() {
+          _textData = updated;
+        });
+
+        returnRow = await _dbHelper.updateText(updated);
+
+      } else {
+        // 신규 생성
+        final newText = TextModel(
+          title: _saveTitle,
+          content: _saveContent,
+          createdAt: now,
+          modifiedAt: now,
+        );
+
+        returnRow = await _dbHelper.insertText(newText);
+      }
+
     } catch (e) {
       // 실패 시 예외 처리
       print('저장 실패: $e');
@@ -90,6 +133,23 @@ class _WritePageState extends State<WritePage> {
       );
     }
 
+    return returnRow;
+  }
+
+  // 메시지 기능
+  Future<void> _showErrorDialog() async {
+    await showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        content: Text('저장에 실패했습니다.\n조건을 확인해주세요.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('확인'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -102,16 +162,9 @@ class _WritePageState extends State<WritePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        // title: Text('하루 한 바닥'),
-        leading: IconButton(
-          icon: Icon(Icons.arrow_back),
-          onPressed: () {
-            Navigator.pop(context);
-          },
-        ),
+        // title: Text('저장된 글 목록'),
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
+      body: PageWrapper(
         child: Column(
           children: [
             // 공백 포함 라벨 + 스위치 행
@@ -139,77 +192,58 @@ class _WritePageState extends State<WritePage> {
                 Spacer(),
                 ElevatedButton(
                   onPressed: () async {
-                    // 저장할 수 있는 글자 수면 저장
-                    if(_isCharCountValid()) {
-                      await _saveText(_contentController.text);
-                      await showDialog(
-                        context: context,
-                        builder: (BuildContext context) {
-                          return AlertDialog(
-                            content: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  Icons.info_outline,
-                                  size: 40,
-                                  color: Colors.deepPurple,
-                                ),
-                                SizedBox(height: 30),
-                                Text(
-                                  '저장되었습니다.',
-                                  style: TextStyle(fontSize: 16,
-                                      fontWeight: FontWeight.bold),
-                                ),
-                              ],
-                            ),
-                            actions: [
-                              TextButton(
-                                child: Text('확인'),
-                                onPressed: () {
-                                  Navigator.of(context).pop(); // 알림창 닫기
-                                  Navigator.of(context).pop(); // 저장 후 홈(목록)으로 이동
-                                },
-                              ),
-                            ],
-                          );
-                        },
-                      );
-                    } 
-                    // 분량 미달 혹은 초과면 돌려 보냄
-                    else {
-                      await showDialog(
-                        context: context,
-                        builder: (BuildContext context) {
-                          return AlertDialog(
-                            content: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  Icons.info_outline,
-                                  size: 40,
-                                  color: Colors.deepPurple,
-                                ),
-                                SizedBox(height: 30),
-                                Text(
-                                    '글자 수가 적절한 범위(${minTxt}~${maxTxt})에 있어야 저장할 수 있습니다.',
-                                  style: TextStyle(fontSize: 16,
-                                  fontWeight: FontWeight.bold),
-                                ),
-                              ],
-                            ),
-                            actions: [
-                              TextButton(
-                                child: Text('확인'),
-                                onPressed: () {
-                                  Navigator.of(context).pop();
-                                },
-                              ),
-                            ],
-                          );
-                        },
-                      );
-                    }
+                    if (_isCharCountValid()) {
+                      String _saveTitle = _titleController.text.trim();
+                      String _saveContent = _contentController.text.trim();
 
+                      if (_saveTitle.isEmpty) {
+                        final now = DateTime.now();
+                        _saveTitle = DateFormat('yyyy-MM-dd').format(now) + '에 쓴 글';
+                      }
+
+                      final now = DateTime.now().toIso8601String();
+                      int returnRow = -1;
+                      int? newSeq;
+
+                      try {
+                        if (_isEditMode) {
+                          final updated = TextModel(
+                            seq: _textData!.seq,
+                            title: _saveTitle,
+                            content: _saveContent,
+                            createdAt: _textData!.createdAt,
+                            modifiedAt: now,
+                          );
+                          returnRow = await _dbHelper.updateText(updated);
+                          newSeq = updated.seq;
+                        } else {
+                          final created = TextModel(
+                            title: _saveTitle,
+                            content: _saveContent,
+                            createdAt: now,
+                            modifiedAt: now,
+                          );
+                          returnRow = await _dbHelper.insertText(created);
+                          newSeq = returnRow;
+                        }
+
+                        if (returnRow > 0 && newSeq != null) {
+                          Navigator.pushReplacementNamed(
+                            context,
+                            '/detail',
+                            arguments: {'seq': newSeq},
+                          );
+                        } else {
+                          // 실패 시 → 현재 화면 유지 + Alert
+                          await _showErrorDialog();
+                        }
+                      } catch (e) {
+                        print('저장 실패: $e');
+                        await _showErrorDialog();
+                      }
+                    } else {
+                      await _showErrorDialog();
+                    }
                   },
                   style: ElevatedButton.styleFrom(
                     side: BorderSide(color: Color(0xFF7E57C2), width: 2.0),

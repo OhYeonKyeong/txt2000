@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:txt2000/database/db_helper.dart';
+import 'package:txt2000/models/text_model.dart';
+import '../widgets/common_page_wrapper.dart';
+
 
 class ListPage extends StatefulWidget {
   @override
@@ -10,17 +13,8 @@ class ListPage extends StatefulWidget {
 class _ListPageState extends State<ListPage> {
   final DBHelper _dbHelper = DBHelper();
 
-  List<Map<String, dynamic>> _texts = [];
+  List<TextModel> _texts = [];
   bool _isLoading = true;
-
-  // DB에서 데이터 불러오기
-  Future<void> _loadTexts() async {
-    final data = await _dbHelper.getTextsList(); // DBHelper에서 목록을 가져오는 함수 필요
-    setState(() {
-      _texts = data;
-      _isLoading = false;
-    });
-  }
 
   @override
   void initState() {
@@ -28,11 +22,25 @@ class _ListPageState extends State<ListPage> {
     _loadTexts();
   }
 
+  // DB에서 데이터 불러오기
+  Future<void> _loadTexts() async {
+    final data = await _dbHelper.getTextsList(); // DBHelper에서 목록을 가져오는 함수 필요
+
+    // Failed assertion: line 6179 pos 14: '_dependents.isEmpty': is not true. 방지
+    if (!mounted) return;
+
+    setState(() {
+      _texts = data;
+      _isLoading = false;
+    });
+  }
+
+
   // 제목 옆에 표시될 글 생성일
   String _formatDate(String isoDate) {
     try {
-      final _cDate = DateTime.parse(isoDate);
-      return DateFormat('MM/dd').format(_cDate);
+      final parsed = DateTime.parse(isoDate);
+      return DateFormat('MM/dd').format(parsed);
     } catch (e) {
       return '';
     }
@@ -52,26 +60,28 @@ class _ListPageState extends State<ListPage> {
             itemCount: _texts.length,
             itemBuilder: (context, index) {
               final item = _texts[index];
-              return Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 2.0),
+              return PageWrapper(
                   child: ListTile(
                     title: Row(
                       children: [
                         Container(
-                          padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          padding: EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2
+                          ),
                           decoration: BoxDecoration(
                             color: Colors.grey[300],
                             borderRadius: BorderRadius.circular(4),
                           ),
                           child: Text(
-                            _formatDate(item['createdAt']),
+                            _formatDate(item.createdAt),
                             style: TextStyle(fontSize: 16, color: Colors.black87),
                           ),
                         ),
                         SizedBox(width: 8), // 날짜와 제목 사이 간격
                         Expanded(
                           child: Text(
-                            item['title'] ?? '제목 없음',
+                            item.title ?? '제목 없음',
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                           ),
@@ -79,14 +89,19 @@ class _ListPageState extends State<ListPage> {
                       ],
                     ),
                     subtitle: Text(
-                      item['content']?.length > 20
-                          ? item['content'].substring(0, 20) + '...'
-                          : item['content'] ?? '',
+                      item.content.length > 20
+                          ? item.content.substring(0, 20) + '...'
+                          : item.content,
                       style: TextStyle(color: Colors.grey[600]),
-
                     ),
+
+                    // 글 상세보기로 넘어가기
                     onTap: () {
-                      // 필요하면 글 상세 보기 페이지로 이동 처리
+                      Navigator.pushNamed(
+                        context,
+                        '/detail',
+                        arguments: {'seq': item.seq},
+                      );
                     },
                   )
               );
