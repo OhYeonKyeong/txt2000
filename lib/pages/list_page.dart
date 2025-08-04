@@ -4,13 +4,33 @@ import 'package:txt2000/database/db_helper.dart';
 import 'package:txt2000/models/text_model.dart';
 import '../widgets/common_page_wrapper.dart';
 
-
+final RouteObserver<ModalRoute<void>> routeObserver = RouteObserver<ModalRoute<void>>();
 class ListPage extends StatefulWidget {
+  const ListPage({super.key});
+
   @override
-  _ListPageState createState() => _ListPageState();
+  ListPageState createState() => ListPageState();
 }
 
-class _ListPageState extends State<ListPage> {
+class ListPageState extends State<ListPage> with RouteAware {
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    routeObserver.subscribe(this, ModalRoute.of(context)!);
+  }
+
+  @override
+  void dispose() {
+    routeObserver.unsubscribe(this);
+    super.dispose();
+  }
+
+  @override
+  void didPopNext() {
+    _loadTexts();  // 리스트 페이지가 다시 보여질 때 호출
+  }
+
+
   final DBHelper _dbHelper = DBHelper();
 
   List<TextModel> _texts = [];
@@ -90,7 +110,7 @@ class _ListPageState extends State<ListPage> {
                     ),
                     subtitle: Text(
                       item.content.length > 20
-                          ? item.content.substring(0, 20) + '...'
+                          ? '${item.content.substring(0, 20)}...'
                           : item.content,
                       style: TextStyle(color: Colors.grey[600]),
                     ),

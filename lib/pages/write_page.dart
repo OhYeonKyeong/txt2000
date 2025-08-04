@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:txt2000/database/db_helper.dart';
 import '../models/text_model.dart';
 import '../widgets/common_page_wrapper.dart';
+import '../widgets/dialog.dart';
 
 class WritePage extends StatefulWidget {
   const WritePage({super.key});
@@ -74,28 +75,28 @@ class _WritePageState extends State<WritePage> {
   }
 
   // 저장 기능 (비공개)
-  Future<int> _saveText(String savedText) async {
-    String _saveTitle = _titleController.text.trim();
-    String _saveContent = _contentController.text.trim();
+  Future<int> _saveText() async {
+    String saveTitle = _titleController.text.trim();
+    String saveContent = _contentController.text.trim();
 
-    if (_saveTitle.isEmpty) {
+    if (saveTitle.isEmpty) {
       // 제목 없으면 오늘 날짜로 기본 셋팅
-      final now = DateTime.now();
-      _saveTitle = DateFormat('yyyy-MM-dd').format(now) + '에 쓴 글';
+      final now = DateFormat('yyyy-MM-dd').format(DateTime.now());
+      saveTitle = "$now 에 쓴 글";
     }
 
-    final now = DateTime.now().toIso8601String();
+    final sysdate = DateTime.now().toIso8601String();
     int returnRow = -1;
 
     try {
+      // 수정 모드인 경우
       if(_isEditMode) {
-        // 수정
         final updated = TextModel(
           seq: _textData!.seq,
-          title: _saveTitle,
-          content: _saveContent,
+          title: saveTitle,
+          content: saveContent,
           createdAt: _textData!.createdAt, // 기존 생성일 유지
-          modifiedAt: now,
+          modifiedAt: sysdate,
         );
 
         setState(() {
@@ -105,51 +106,25 @@ class _WritePageState extends State<WritePage> {
         returnRow = await _dbHelper.updateText(updated);
 
       } else {
-        // 신규 생성
-        final newText = TextModel(
-          title: _saveTitle,
-          content: _saveContent,
-          createdAt: now,
-          modifiedAt: now,
+        // 새로운 글인 경우
+        final created = TextModel(
+          title: saveTitle,
+          content: saveContent,
+          createdAt: sysdate,
+          modifiedAt: sysdate,
         );
 
-        returnRow = await _dbHelper.insertText(newText);
+        returnRow = await _dbHelper.insertText(created);
       }
 
     } catch (e) {
-      // 실패 시 예외 처리
-      print('저장 실패: $e');
-      await showDialog(
-        context: context,
-        builder: (_) => AlertDialog(
-          content: Text('저장 중 오류가 발생했습니다.'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text('확인'),
-            ),
-          ],
-        ),
-      );
+      if(mounted) {
+        // 실패 시 예외 처리
+        await showSaveErrorDialog(context);
+      }
     }
 
     return returnRow;
-  }
-
-  // 메시지 기능
-  Future<void> _showErrorDialog() async {
-    await showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        content: Text('저장에 실패했습니다.\n조건을 확인해주세요.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text('확인'),
-          ),
-        ],
-      ),
-    );
   }
 
   @override
@@ -193,56 +168,19 @@ class _WritePageState extends State<WritePage> {
                 ElevatedButton(
                   onPressed: () async {
                     if (_isCharCountValid()) {
-                      String _saveTitle = _titleController.text.trim();
-                      String _saveContent = _contentController.text.trim();
+                      int returnRow = await _saveText();
+                      int? newSeq = _isEditMode? _textData?.seq : returnRow;
 
-                      if (_saveTitle.isEmpty) {
-                        final now = DateTime.now();
-                        _saveTitle = DateFormat('yyyy-MM-dd').format(now) + '에 쓴 글';
-                      }
-
-                      final now = DateTime.now().toIso8601String();
-                      int returnRow = -1;
-                      int? newSeq;
-
-                      try {
-                        if (_isEditMode) {
-                          final updated = TextModel(
-                            seq: _textData!.seq,
-                            title: _saveTitle,
-                            content: _saveContent,
-                            createdAt: _textData!.createdAt,
-                            modifiedAt: now,
-                          );
-                          returnRow = await _dbHelper.updateText(updated);
-                          newSeq = updated.seq;
-                        } else {
-                          final created = TextModel(
-                            title: _saveTitle,
-                            content: _saveContent,
-                            createdAt: now,
-                            modifiedAt: now,
-                          );
-                          returnRow = await _dbHelper.insertText(created);
-                          newSeq = returnRow;
-                        }
-
-                        if (returnRow > 0 && newSeq != null) {
-                          Navigator.pushReplacementNamed(
-                            context,
-                            '/detail',
-                            arguments: {'seq': newSeq},
-                          );
-                        } else {
-                          // 실패 시 → 현재 화면 유지 + Alert
-                          await _showErrorDialog();
-                        }
-                      } catch (e) {
-                        print('저장 실패: $e');
-                        await _showErrorDialog();
+                      if(returnRow > 0 && newSeq != null) {
+                        Navigator.pushNamed(context, '/list').then((_) {
+                          Navigator.pushNamed(context, '/detail', arguments: {'seq': newSeq});
+                        });
+                      } else {
+                        if (!mounted) return;
+                        await showSaveErrorDialog(context);
                       }
                     } else {
-                      await _showErrorDialog();
+                      await showSaveErrorDialog(context);
                     }
                   },
                   style: ElevatedButton.styleFrom(

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:txt2000/database/db_helper.dart';
 import 'package:txt2000/models/text_model.dart';
+import 'package:txt2000/widgets/dialog.dart';
 import '../widgets/common_page_wrapper.dart';
 import 'list_page.dart';
 
@@ -38,11 +39,12 @@ class _DetailPageState extends State<DetailPage> {
     });
   }
 
+  // 삭제 메소드
   void _confirmDelete(BuildContext context) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
-        title: Text('정말 삭제할까요?'),
+        title: Text('삭제하시겠습니까?'),
         content: Text('삭제한 글은 복구할 수 없어요.'),
         actions: [
           TextButton(
@@ -57,14 +59,23 @@ class _DetailPageState extends State<DetailPage> {
       ),
     );
 
-    if (confirmed == true) {
-      await _dbHelper.deleteText(_textData!.seq!); // 모델 아직 안 써서 Map 기준
-      if (!mounted) return;
-      Navigator.pushAndRemoveUntil(
-        context,
-        MaterialPageRoute(builder: (_) => ListPage()),
-        ModalRoute.withName('/home'),
-      );
+    try {
+      final deleteRows = await _dbHelper.deleteText(_textData!.seq!); // 모델 아직 안 써서 Map 기준
+
+      if(!mounted) return;
+      if(deleteRows > 0) {
+        // 현재 detail pop
+        Navigator.pop(context);
+        // 그리고 list로 교체 (새로고침된 리스트)
+        Navigator.pushReplacementNamed(context, '/list');
+      }
+
+    } catch(e) {
+      // 어플을 끄거나 화면이 정상X > 그냥 먹통
+      if(mounted) {
+        await showDeleteErrorDialog(context);
+      }
+
     }
   }
 

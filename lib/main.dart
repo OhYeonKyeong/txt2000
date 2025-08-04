@@ -14,6 +14,7 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       initialRoute: '/home',
+      navigatorObservers: [routeObserver], // list 항상 새로고침
       onGenerateRoute: (settings) {
         switch (settings.name) {
           case '/home':
