@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
@@ -32,12 +33,12 @@ class HomePage extends StatelessWidget {
 
               buildTextMenuItem(
                 label: '글 목록 보기',
-                onTap: () => Navigator.pushNamed(context, '/list'),
+                onTap: () => context.go('/list'),
               ),
               const Divider(indent: 32, endIndent: 32),
               buildTextMenuItem(
                 label: '새 글 작성하기',
-                onTap: () => Navigator.pushNamed(context, '/write'),
+                onTap: () => context.push('/write'),
               ),
               const Divider(indent: 32, endIndent: 32),
               buildTextMenuItem(

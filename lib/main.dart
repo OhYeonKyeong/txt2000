@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+
 import 'pages/home_page.dart';
 import 'pages/list_page.dart';
 import 'pages/write_page.dart';
@@ -10,38 +12,45 @@ void main() async {
 }
 
 class MyApp extends StatelessWidget {
+  MyApp({super.key});
+
+  final GoRouter _router = GoRouter(
+    initialLocation: '/home',
+    routes: [
+      GoRoute(
+        path: '/home',
+        name: 'home',
+        builder: (context, state) => const HomePage(),
+      ),
+      GoRoute(
+        path: '/list',
+        name: 'list',
+        builder: (context, state) => const ListPage(),
+      ),
+      GoRoute(
+        path: '/write',
+        name: 'write',
+        builder: (context, state) => const WritePage(),
+      ),
+      GoRoute(
+        path: '/detail/:seq',  // seq는 경로 파라미터
+        name: 'detail',
+        builder: (context, state) {
+          final seq = state.pathParameters['seq']!;
+          return DetailPage(seq: int.parse(seq));
+        },
+      ),
+    ],
+    errorBuilder: (context, state) => Scaffold(
+      body: Center(child: Text('404: 페이지를 찾을 수 없습니다.')),
+    ),
+  );
+
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      initialRoute: '/home',
-      navigatorObservers: [routeObserver], // list 항상 새로고침
-      onGenerateRoute: (settings) {
-        switch (settings.name) {
-          case '/home':
-            return MaterialPageRoute(builder: (_) => HomePage());
-          case '/list':
-            return MaterialPageRoute(builder: (_) => ListPage());
-          case '/write':
-            return MaterialPageRoute(
-              builder: (_) => WritePage(),
-              settings: settings,
-            );
-          case '/detail':
-            return MaterialPageRoute(
-              // detail_pags 에서 const DetailPage({super.key}); 선언 안하면 여기 오류남
-              // 이유 ? MaterialPageRoute나 Navigator는 자동으로 Key를 넘기는데
-              // 페이지가 그걸 받을 준비가 안 돼 있으면 컴파일러가 빨간줄 내는 거야!
-              builder: (_) => DetailPage(),
-              settings: settings,
-            );
-          default:
-            return MaterialPageRoute(
-              builder: (_) => Scaffold(
-                body: Center(child: Text('404: 페이지를 찾을 수 없습니다')),
-              ),
-            );
-        }
-      },
+    return MaterialApp.router(
+      routerConfig: _router,
+      debugShowCheckedModeBanner: false,
     );
   }
 }

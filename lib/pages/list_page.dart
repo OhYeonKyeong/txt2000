@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:txt2000/database/db_helper.dart';
 import 'package:txt2000/models/text_model.dart';
 import '../widgets/common_page_wrapper.dart';
 
-final RouteObserver<ModalRoute<void>> routeObserver = RouteObserver<ModalRoute<void>>();
 class ListPage extends StatefulWidget {
   const ListPage({super.key});
 
@@ -12,51 +12,39 @@ class ListPage extends StatefulWidget {
   ListPageState createState() => ListPageState();
 }
 
-class ListPageState extends State<ListPage> with RouteAware {
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    routeObserver.subscribe(this, ModalRoute.of(context)!);
-  }
-
-  @override
-  void dispose() {
-    routeObserver.unsubscribe(this);
-    super.dispose();
-  }
-
-  @override
-  void didPopNext() {
-    _loadTexts();  // 리스트 페이지가 다시 보여질 때 호출
-  }
-
-
+class ListPageState extends State<ListPage> with WidgetsBindingObserver {
   final DBHelper _dbHelper = DBHelper();
-
-  List<TextModel> _texts = [];
-  bool _isLoading = true;
+  late Future<List<TextModel>> _futureTexts;
 
   @override
   void initState() {
     super.initState();
-    _loadTexts();
+    _futureTexts = _dbHelper.getTextsList();
+    WidgetsBinding.instance.addObserver(this);
   }
 
-  // DB에서 데이터 불러오기
-  Future<void> _loadTexts() async {
-    final data = await _dbHelper.getTextsList(); // DBHelper에서 목록을 가져오는 함수 필요
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
 
-    // Failed assertion: line 6179 pos 14: '_dependents.isEmpty': is not true. 방지
-    if (!mounted) return;
+  // 앱이 다시 활성화될 때 데이터 리로드
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _reloadTexts();
+    }
+  }
 
+  // 데이터 새로고침
+  void _reloadTexts() {
     setState(() {
-      _texts = data;
-      _isLoading = false;
+      _futureTexts = _dbHelper.getTextsList();
     });
   }
 
-
-  // 제목 옆에 표시될 글 생성일
+  // 글 생성일 포맷
   String _formatDate(String isoDate) {
     try {
       final parsed = DateTime.parse(isoDate);
@@ -68,65 +56,80 @@ class ListPageState extends State<ListPage> with RouteAware {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        // title: Text('저장된 글 목록'),
-      ),
-      body: _isLoading
-          ? Center(child: CircularProgressIndicator()) // 데이터 로딩중
-          : _texts.isEmpty
-          ? Center(child: Text('저장된 글이 없습니다.')) // 저장된 글이 없음
-          : ListView.builder( // 저장된 글이 있음
-            itemCount: _texts.length,
-            itemBuilder: (context, index) {
-              final item = _texts[index];
-              return PageWrapper(
-                  child: ListTile(
-                    title: Row(
-                      children: [
-                        Container(
-                          padding: EdgeInsets.symmetric(
-                              horizontal: 6,
-                              vertical: 2
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.grey[300],
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: Text(
-                            _formatDate(item.createdAt),
-                            style: TextStyle(fontSize: 16, color: Colors.black87),
-                          ),
-                        ),
-                        SizedBox(width: 8), // 날짜와 제목 사이 간격
-                        Expanded(
-                          child: Text(
-                            item.title ?? '제목 없음',
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                          ),
-                        ),
-                      ],
-                    ),
-                    subtitle: Text(
-                      item.content.length > 20
-                          ? '${item.content.substring(0, 20)}...'
-                          : item.content,
-                      style: TextStyle(color: Colors.grey[600]),
-                    ),
+    return PopScope(
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) {
+          _reloadTexts();
+        }
+      },
+      child: Scaffold(
+        appBar: AppBar(),
+        body: FutureBuilder<List<TextModel>>(
+          future: _futureTexts,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            } else if (snapshot.hasError) {
+              return Center(child: Text('오류가 발생했습니다: ${snapshot.error}'));
+            } else {
+              final texts = snapshot.data ?? [];
+              if (texts.isEmpty) {
+                return const Center(child: Text('저장된 글이 없습니다.'));
+              }
 
-                    // 글 상세보기로 넘어가기
-                    onTap: () {
-                      Navigator.pushNamed(
-                        context,
-                        '/detail',
-                        arguments: {'seq': item.seq},
-                      );
-                    },
-                  )
+              return ListView.builder(
+                itemCount: texts.length,
+                itemBuilder: (context, index) {
+                  final item = texts[index];
+                  return PageWrapper(
+                    child: ListTile(
+                      title: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.grey[300],
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              _formatDate(item.createdAt),
+                              style: const TextStyle(fontSize: 16, color: Colors.black87),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              item.title.isNotEmpty ? item.title : '제목 없음',
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                        ],
+                      ),
+                      subtitle: Text(
+                        item.content.length > 20
+                            ? '${item.content.substring(0, 20)}...'
+                            : item.content,
+                        style: TextStyle(color: Colors.grey[600]),
+                      ),
+                      onTap: () {
+                        context.push('/detail/${item.seq}').then((_) => _reloadTexts());
+                      },
+                    ),
+                  );
+                },
               );
-            },
-          ),
+            }
+          },
+        ),
+        floatingActionButton: FloatingActionButton(
+          onPressed: () {
+            context.push('/write').then((_) => _reloadTexts());
+          },
+          child: const Icon(Icons.add),
+          tooltip: '새 글 작성하기',
+        ),
+      ),
     );
   }
 }

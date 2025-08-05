@@ -13,26 +13,27 @@ class WritePage extends StatefulWidget {
 }
 
 class _WritePageState extends State<WritePage> {
-
-  // DB인스턴스
+  // DBHelper 싱글톤 인스턴스
   final DBHelper _dbHelper = DBHelper();
 
-  // 텍스트 변수들
+  // 텍스트 컨트롤러 - 제목과 내용 입력 관리
   final TextEditingController _titleController = TextEditingController();
   final TextEditingController _contentController = TextEditingController();
+
+  // 공백 포함 여부를 토글하는 상태 변수
   bool _includeSpaces = true;
 
-  // 글자 수 제한 관련 변수들
-  int _baseCharCount = 20;
-  double _tolerance = 0.1;
+  // 글자 수 제한 변수 및 계산 (허용 범위 +/- 10%)
+  final int _baseCharCount = 20;
+  final double _tolerance = 0.1;
   int get minTxt => (_baseCharCount * (1 - _tolerance)).round();
   int get maxTxt => (_baseCharCount * (1 + _tolerance)).round();
 
-  // 글 수정 관련 변수들
+  // 수정 모드인지 여부, 수정 대상 데이터 저장
   bool _isEditMode = false;
   TextModel? _textData;
 
-  // 수정으로 진입한 경우 파라미터 처리
+  /// didChangeDependencies에서 파라미터 수신 후 초기값 세팅
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -41,15 +42,12 @@ class _WritePageState extends State<WritePage> {
       _isEditMode = true;
       _textData = args['text'];
 
-      print('데이터 : ');
-      print(_textData!);
-
       _titleController.text = _textData?.title ?? '';
       _contentController.text = _textData?.content ?? '';
     }
   }
 
-  // 공백 포함 여부에 따라 글자 수 계산 (비공개)
+  /// 현재 입력 내용에 따라 글자 수 계산 (공백 포함 여부에 따라 다름)
   int _getCharCount() {
     if (_includeSpaces) {
       return _contentController.text.length;
@@ -58,9 +56,9 @@ class _WritePageState extends State<WritePage> {
     }
   }
 
-  // 글자 수에 따른 색상 반환 (비공개)
+  /// 글자 수가 제한 범위 내에 있을 경우 초록색, 아니면 빨강색 반환
   Color _getCountColor() {
-    int count = _getCharCount();
+    final count = _getCharCount();
     if (count >= minTxt && count <= maxTxt) {
       return const Color(0xFF81C784); // 초록 (유효)
     } else {
@@ -68,19 +66,20 @@ class _WritePageState extends State<WritePage> {
     }
   }
 
-  // 저장 가능 여부 확인 (비공개)
+  /// 글자 수가 유효한지 여부 판단
   bool _isCharCountValid() {
-    int count = _getCharCount();
+    final count = _getCharCount();
     return count >= minTxt && count <= maxTxt;
   }
 
-  // 저장 기능 (비공개)
+  /// 텍스트 저장 처리 (신규 또는 수정)
+  /// 반환값: 성공 시 DB 행 id, 실패 시 -1
   Future<int> _saveText() async {
     String saveTitle = _titleController.text.trim();
     String saveContent = _contentController.text.trim();
 
+    // 제목이 없으면 현재 날짜를 기본 제목으로 설정
     if (saveTitle.isEmpty) {
-      // 제목 없으면 오늘 날짜로 기본 셋팅
       final now = DateFormat('yyyy-MM-dd').format(DateTime.now());
       saveTitle = "$now 에 쓴 글";
     }
@@ -89,13 +88,13 @@ class _WritePageState extends State<WritePage> {
     int returnRow = -1;
 
     try {
-      // 수정 모드인 경우
-      if(_isEditMode) {
+      if (_isEditMode) {
+        // 수정 모드 - 기존 seq 유지하며 업데이트
         final updated = TextModel(
           seq: _textData!.seq,
           title: saveTitle,
           content: saveContent,
-          createdAt: _textData!.createdAt, // 기존 생성일 유지
+          createdAt: _textData!.createdAt,
           modifiedAt: sysdate,
         );
 
@@ -106,7 +105,7 @@ class _WritePageState extends State<WritePage> {
         returnRow = await _dbHelper.updateText(updated);
 
       } else {
-        // 새로운 글인 경우
+        // 신규 글 저장
         final created = TextModel(
           title: saveTitle,
           content: saveContent,
@@ -116,10 +115,8 @@ class _WritePageState extends State<WritePage> {
 
         returnRow = await _dbHelper.insertText(created);
       }
-
     } catch (e) {
-      if(mounted) {
-        // 실패 시 예외 처리
+      if (mounted) {
         await showSaveErrorDialog(context);
       }
     }
@@ -129,32 +126,56 @@ class _WritePageState extends State<WritePage> {
 
   @override
   void dispose() {
+    _titleController.dispose();
     _contentController.dispose();
     super.dispose();
   }
 
+  /// 저장 버튼 눌렀을 때 처리
+  /// 저장 성공 시 리스트 페이지 이동 후 상세 페이지로 이동 (글 확인)
+  /// 실패 시 에러 다이얼로그 출력
+  Future<void> _onSavePressed() async {
+    if (!_isCharCountValid()) {
+      await showSaveErrorDialog(context);
+      return;
+    }
+
+    int returnRow = await _saveText();
+    int? newSeq = _isEditMode ? _textData?.seq : returnRow;
+
+    if (returnRow > 0 && newSeq != null) {
+      Navigator.pushNamed(context, '/list').then((_) {
+        Navigator.pushNamed(context, '/detail', arguments: {'seq': newSeq});
+      });
+    } else {
+      if (!mounted) return;
+      await showSaveErrorDialog(context);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final screenHeight = MediaQuery.of(context).size.height;
+
     return Scaffold(
-      appBar: AppBar(
-        // title: Text('저장된 글 목록'),
-      ),
+      appBar: AppBar(),
       body: PageWrapper(
         child: Column(
           children: [
-            // 공백 포함 라벨 + 스위치 행
+            // 공백 포함 여부 토글 + 저장 버튼 영역
             Row(
               mainAxisAlignment: MainAxisAlignment.start,
               children: [
-                SizedBox(width: MediaQuery.of(context).size.width * 0.03), // 반응형 약간 들여쓰기
-                Text(
+                SizedBox(width: screenWidth * 0.03), // 들여쓰기
+                const Text(
                   '공백 포함',
                   style: TextStyle(
                       fontSize: 15,
                       color: Colors.black,
                       fontWeight: FontWeight.bold),
                 ),
-                SizedBox(width: 10),
+                const SizedBox(width: 10),
                 Switch(
                   value: _includeSpaces,
                   onChanged: (value) {
@@ -163,36 +184,19 @@ class _WritePageState extends State<WritePage> {
                     });
                   },
                 ),
-
-                Spacer(),
+                const Spacer(),
                 ElevatedButton(
-                  onPressed: () async {
-                    if (_isCharCountValid()) {
-                      int returnRow = await _saveText();
-                      int? newSeq = _isEditMode? _textData?.seq : returnRow;
-
-                      if(returnRow > 0 && newSeq != null) {
-                        Navigator.pushNamed(context, '/list').then((_) {
-                          Navigator.pushNamed(context, '/detail', arguments: {'seq': newSeq});
-                        });
-                      } else {
-                        if (!mounted) return;
-                        await showSaveErrorDialog(context);
-                      }
-                    } else {
-                      await showSaveErrorDialog(context);
-                    }
-                  },
+                  onPressed: _onSavePressed,
                   style: ElevatedButton.styleFrom(
-                    side: BorderSide(color: Color(0xFF7E57C2), width: 2.0),
-                    backgroundColor: Color(0xFF7E57C2),
+                    side: const BorderSide(color: Color(0xFF7E57C2), width: 2.0),
+                    backgroundColor: const Color(0xFF7E57C2),
                     foregroundColor: Colors.white,
                     elevation: 0,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(30),
                     ),
                   ),
-                  child: Text(
+                  child: const Text(
                     '저장',
                     style: TextStyle(fontWeight: FontWeight.w900, fontSize: 14),
                   ),
@@ -200,65 +204,63 @@ class _WritePageState extends State<WritePage> {
               ],
             ),
 
-            SizedBox(height: 16),
+            const SizedBox(height: 16),
 
+            // 제목 입력 텍스트필드
             SizedBox(
-              width: MediaQuery.of(context).size.width * 0.9,  // 너비 90% 고정
+              width: screenWidth * 0.9,
               child: TextField(
                 controller: _titleController,
                 textInputAction: TextInputAction.next,
                 decoration: InputDecoration(
-                  border: OutlineInputBorder(),
+                  border: const OutlineInputBorder(),
                   hintText: "제목을 입력하세요.",
                   hintStyle: TextStyle(
                     color: Colors.grey[500],
                     fontWeight: FontWeight.normal,
                     height: 1.5,
                   ),
-                  contentPadding: EdgeInsets.symmetric(vertical: 16, horizontal: 12),
+                  contentPadding:
+                  const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
                 ),
               ),
             ),
 
-            SizedBox(height: 10),
+            const SizedBox(height: 10),
 
-            // 텍스트 입력창 (고정 높이, 반응형 너비)
+            // 내용 입력 텍스트필드 (확장, 고정 높이)
             SizedBox(
-              height: MediaQuery.of(context).size.height * 0.5, // 전체 화면 높이의 60% 고정
-              width: MediaQuery.of(context).size.width * 0.9,   // 너비도 90% 고정
+              height: screenHeight * 0.5,
+              width: screenWidth * 0.9,
               child: TextField(
                 controller: _contentController,
-                onChanged: (text) {
-                  setState(() {
-                  });
-                },
+                onChanged: (text) => setState(() {}),
                 minLines: null,
                 maxLines: null,
-                expands: true, // TextField가 SizedBox 크기만큼 꽉 채우게 함
-                textAlignVertical: TextAlignVertical.top,  // 힌트 텍스트 세로 위쪽 정렬
+                expands: true,
+                textAlignVertical: TextAlignVertical.top,
                 decoration: InputDecoration(
-                  border: OutlineInputBorder(),
+                  border: const OutlineInputBorder(),
                   hintText: "내용을 입력하세요.",
                   hintStyle: TextStyle(
                     color: Colors.grey[500],
                     fontWeight: FontWeight.normal,
-                    // 텍스트가 위쪽에 붙도록
                     height: 1.5,
                   ),
                   contentPadding:
-                  EdgeInsets.symmetric(vertical: 16, horizontal: 12),
+                  const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
                 ),
               ),
             ),
 
-            SizedBox(height: 20),
+            const SizedBox(height: 20),
 
-            // 글자 수 표시
+            // 현재 글자 수 표시 (색상은 유효/무효에 따라 다름)
             RichText(
               text: TextSpan(
-                style: TextStyle(fontSize: 18, color: Colors.black),
+                style: const TextStyle(fontSize: 18, color: Colors.black),
                 children: [
-                  TextSpan(text: '글자 수: '),
+                  const TextSpan(text: '글자 수: '),
                   TextSpan(
                     text: '${_getCharCount()}자',
                     style: TextStyle(
