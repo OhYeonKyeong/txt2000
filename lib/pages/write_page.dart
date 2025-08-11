@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:txt2000/database/db_helper.dart';
 import '../models/text_model.dart';
@@ -103,7 +104,10 @@ class _WritePageState extends State<WritePage> {
         });
 
         returnRow = await _dbHelper.updateText(updated);
-
+        if (!mounted) {
+          return -1;
+        }
+        context.go('/list'); // 저장 후 리스트로 이동
       } else {
         // 신규 글 저장
         final created = TextModel(
@@ -114,6 +118,10 @@ class _WritePageState extends State<WritePage> {
         );
 
         returnRow = await _dbHelper.insertText(created);
+        if (!mounted) {
+          return -1;
+        }
+        context.go('/list'); // 저장 후 리스트로 이동
       }
     } catch (e) {
       if (mounted) {
@@ -129,28 +137,6 @@ class _WritePageState extends State<WritePage> {
     _titleController.dispose();
     _contentController.dispose();
     super.dispose();
-  }
-
-  /// 저장 버튼 눌렀을 때 처리
-  /// 저장 성공 시 리스트 페이지 이동 후 상세 페이지로 이동 (글 확인)
-  /// 실패 시 에러 다이얼로그 출력
-  Future<void> _onSavePressed() async {
-    if (!_isCharCountValid()) {
-      await showSaveErrorDialog(context);
-      return;
-    }
-
-    int returnRow = await _saveText();
-    int? newSeq = _isEditMode ? _textData?.seq : returnRow;
-
-    if (returnRow > 0 && newSeq != null) {
-      Navigator.pushNamed(context, '/list').then((_) {
-        Navigator.pushNamed(context, '/detail', arguments: {'seq': newSeq});
-      });
-    } else {
-      if (!mounted) return;
-      await showSaveErrorDialog(context);
-    }
   }
 
   @override
@@ -186,7 +172,7 @@ class _WritePageState extends State<WritePage> {
                 ),
                 const Spacer(),
                 ElevatedButton(
-                  onPressed: _onSavePressed,
+                  onPressed: _saveText,
                   style: ElevatedButton.styleFrom(
                     side: const BorderSide(color: Color(0xFF7E57C2), width: 2.0),
                     backgroundColor: const Color(0xFF7E57C2),
